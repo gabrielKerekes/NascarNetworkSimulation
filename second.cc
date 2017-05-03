@@ -35,8 +35,7 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE ("SecondScriptExample");
 
-int 
-main (int argc, char *argv[])
+int main (int argc, char *argv[])
 {
   bool verbose = true;
   uint32_t nCsma = 3;
@@ -48,10 +47,10 @@ main (int argc, char *argv[])
   cmd.Parse (argc,argv);
 
   if (verbose)
-    {
+  {
       LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
       LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
-    }
+  }
 
   nCsma = nCsma == 0 ? 1 : nCsma;
 
