@@ -35,20 +35,19 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WirelessAnimationExample");
 
-int main(int argc, char *argv[]) 
-{
+int main(int argc, char *argv[]) {
     uint32_t nWifi = 20;
-   
+
     CommandLine cmd;
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
     cmd.Parse(argc, argv);
-    
+
     NodeContainer allNodes;
 
-    NodeContainer wifiStaNodes;    
+    NodeContainer wifiStaNodes;
     wifiStaNodes.Create(nWifi);
     allNodes.Add(wifiStaNodes);
-    
+
     NodeContainer wifiApNode;
     wifiApNode.Create(1);
     allNodes.Add(wifiApNode);
@@ -98,17 +97,25 @@ int main(int argc, char *argv[])
     NetDeviceContainer csmaDevices;
     csmaDevices = csma.Install(csmaNodes);
 
+    ObjectFactory pos;
+    pos.SetTypeId("ns3::RandomDiscPositionAllocator");
+    pos.Set("X", StringValue("100.0"));
+    pos.Set("Y", StringValue("100.0"));
+    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=100]"));
+
+    Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
+    
     // Mobility
 
     MobilityHelper mobility;
     mobility.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
             "X", StringValue("100.0"),
             "Y", StringValue("100.0"),
-            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=40]"));
-    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
-            "Bounds", RectangleValue(Rectangle(60, 140, 60, 140)),
-            "Distance", DoubleValue(30),
-            "Speed", StringValue("ns3::UniformRandomVariable[Min=5|Max=20]"));
+            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=100]"));
+    mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
+            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
+            "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
+            "PositionAllocator", PointerValue(taPositionAlloc));
     mobility.Install(wifiStaNodes);
     mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
     mobility.Install(wifiApNode);
@@ -133,46 +140,46 @@ int main(int argc, char *argv[])
 
     // Install Ipv4 addresses
 
-//    Ipv4AddressHelper address;
-//    address.SetBase("10.1.1.0", "255.255.255.0");
-//    Ipv4InterfaceContainer p2pInterfaces;
-//    p2pInterfaces = address.Assign(p2pDevices);
-//    address.SetBase("10.1.2.0", "255.255.255.0");
-//    Ipv4InterfaceContainer csmaInterfaces;
-//    csmaInterfaces = address.Assign(csmaDevices);
-//    address.SetBase("10.1.3.0", "255.255.255.0");
-//    Ipv4InterfaceContainer staInterfaces;
-//    staInterfaces = address.Assign(staDevices);
-//    Ipv4InterfaceContainer apInterface;
-//    apInterface = address.Assign(apDevices);
+    //    Ipv4AddressHelper address;
+    //    address.SetBase("10.1.1.0", "255.255.255.0");
+    //    Ipv4InterfaceContainer p2pInterfaces;
+    //    p2pInterfaces = address.Assign(p2pDevices);
+    //    address.SetBase("10.1.2.0", "255.255.255.0");
+    //    Ipv4InterfaceContainer csmaInterfaces;
+    //    csmaInterfaces = address.Assign(csmaDevices);
+    //    address.SetBase("10.1.3.0", "255.255.255.0");
+    //    Ipv4InterfaceContainer staInterfaces;
+    //    staInterfaces = address.Assign(staDevices);
+    //    Ipv4InterfaceContainer apInterface;
+    //    apInterface = address.Assign(apDevices);
 
     // Install applications
 
-//    UdpEchoServerHelper echoServer(9);
-//    ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(1));
-//    serverApps.Start(Seconds(1.0));
-//    serverApps.Stop(Seconds(15.0));
-//    UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(1), 9);
-//    echoClient.SetAttribute("MaxPackets", UintegerValue(10));
-//    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.)));
-//    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
-//    ApplicationContainer clientApps = echoClient.Install(wifiStaNodes);
-//    clientApps.Start(Seconds(2.0));
-//    clientApps.Stop(Seconds(15.0));
+    //    UdpEchoServerHelper echoServer(9);
+    //    ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(1));
+    //    serverApps.Start(Seconds(1.0));
+    //    serverApps.Stop(Seconds(15.0));
+    //    UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(1), 9);
+    //    echoClient.SetAttribute("MaxPackets", UintegerValue(10));
+    //    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.)));
+    //    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
+    //    ApplicationContainer clientApps = echoClient.Install(wifiStaNodes);
+    //    clientApps.Start(Seconds(2.0));
+    //    clientApps.Stop(Seconds(15.0));
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-    Simulator::Stop(Seconds(15.0));
+    Simulator::Stop(Seconds(120.0));
 
     AnimationInterface anim("nascar-animation.xml"); // Mandatory
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i) {
         anim.UpdateNodeDescription(wifiStaNodes.Get(i), "STA"); // Optional
         anim.UpdateNodeColor(wifiStaNodes.Get(i), 255, 0, 0); // Optional
     }
-    
+
     //g: set special name for node 0
     anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Boss"); // Optional
     anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
-    
+
     for (uint32_t i = 0; i < wifiApNode.GetN(); ++i) {
         anim.UpdateNodeDescription(wifiApNode.Get(i), "AP"); // Optional
         anim.UpdateNodeColor(wifiApNode.Get(i), 0, 255, 0); // Optional
