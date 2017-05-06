@@ -28,80 +28,98 @@
 #include "ns3/netanim-module.h"
 #include "ns3/basic-energy-source.h"
 #include "ns3/simple-device-energy-model.h"
+#include "ns3/config-store-module.h"
 
-
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WirelessAnimationExample");
 
-int main(int argc, char *argv[]) {
-    uint32_t nWifi = 20;
+uint32_t nWifi;
+NodeContainer allNodes;
+TypeId tid;
+Ipv4InterfaceContainer staInterfaces;
+    
+void ReceivePacket(Ptr<Socket> socket) {
+    while (socket->Recv()) {
+        NS_LOG_UNCOND("Received one packet!");
+    }
+}
+
+static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
+        uint32_t pktCount, Time pktInterval) {
+    // todo: num of nodes    
+//    int r = rand() % nWifi;
+//    int r2 = rand() % nWifi;
+//    
+//    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(r), tid);
+//    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(r2, 0), 80);
+//    source->Connect(remote);
+//    
+//    if (pktCount > 0) {
+//        source->Send(Create<Packet> (pktSize));
+//        Simulator::Schedule(pktInterval, &GenerateTraffic,
+//                socket, pktSize, pktCount - 1, pktInterval);
+//    }
+//    
+//    source->Close();
+}
+
+int main(int argc, char *argv[]) 
+{
+    nWifi = 200;
+    double rss = -80; // -dBm
+    uint32_t packetSize = 1000; // bytes
+    uint32_t numPackets = 1;
+    double interval = 1.0; // seconds
+    
+    srand(time(0));
 
     CommandLine cmd;
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
     cmd.Parse(argc, argv);
 
-    NodeContainer allNodes;
-
     NodeContainer wifiStaNodes;
     wifiStaNodes.Create(nWifi);
     allNodes.Add(wifiStaNodes);
-
-    NodeContainer wifiApNode;
-    wifiApNode.Create(1);
-    allNodes.Add(wifiApNode);
-
-    YansWifiChannelHelper channel = YansWifiChannelHelper::Default();
-    YansWifiPhyHelper phy = YansWifiPhyHelper::Default();
-    phy.SetChannel(channel.Create());
-
+    
+    std::string phyMode ("DsssRate1Mbps");
+    
     WifiHelper wifi;
-    wifi.SetRemoteStationManager("ns3::AarfWifiManager");
+    wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+    
+    YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default();
+    // This is one parameter that matters when using FixedRssLossModel
+    // set it to zero; otherwise, gain will be added
+    wifiPhy.Set("RxGain", DoubleValue(0));
+    // ns-3 supports RadioTap and Prism tracing extensions for 802.11b
+    wifiPhy.SetPcapDataLinkType(YansWifiPhyHelper::DLT_IEEE802_11_RADIO);
 
-    WifiMacHelper mac;
-    Ssid ssid = Ssid("ns-3-ssid");
-    mac.SetType("ns3::StaWifiMac",
-            "Ssid", SsidValue(ssid),
-            "ActiveProbing", BooleanValue(false));
+    YansWifiChannelHelper wifiChannel;
+    wifiChannel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
+    // The below FixedRssLossModel will cause the rss to be fixed regardless
+    // of the distance between the two stations, and the transmit power
+    wifiChannel.AddPropagationLoss("ns3::FixedRssLossModel", "Rss", DoubleValue(rss));
+    wifiPhy.SetChannel(wifiChannel.Create());
 
-    NetDeviceContainer staDevices;
-    staDevices = wifi.Install(phy, mac, wifiStaNodes);
-    mac.SetType("ns3::ApWifiMac",
-            "Ssid", SsidValue(ssid));
-
-    NetDeviceContainer apDevices;
-    //apDevices = wifi.Install(phy, mac, wifiApNode);
-
-    NodeContainer p2pNodes;
-    p2pNodes.Add(wifiApNode);
-    p2pNodes.Create(1);
-    allNodes.Add(p2pNodes.Get(1));
-
-    PointToPointHelper pointToPoint;
-    pointToPoint.SetDeviceAttribute("DataRate", StringValue("5Mbps"));
-    pointToPoint.SetChannelAttribute("Delay", StringValue("2ms"));
-
-    NetDeviceContainer p2pDevices;
-    //p2pDevices = pointToPoint.Install(p2pNodes);
-
-    NodeContainer csmaNodes;
-    csmaNodes.Add(p2pNodes.Get(1));
-    csmaNodes.Create(1);
-    allNodes.Add(csmaNodes.Get(1));
-
-    CsmaHelper csma;
-    csma.SetChannelAttribute("DataRate", StringValue("100Mbps"));
-    csma.SetChannelAttribute("Delay", TimeValue(NanoSeconds(6560)));
-
-    NetDeviceContainer csmaDevices;
-    csmaDevices = csma.Install(csmaNodes);
+    // Add a mac and disable rate control
+    WifiMacHelper wifiMac;
+    wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager",
+            "DataMode", StringValue(phyMode),
+            "ControlMode", StringValue(phyMode));
+    // Set it to adhoc mode
+    wifiMac.SetType("ns3::AdhocWifiMac");
+    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, wifiStaNodes);
 
     ObjectFactory pos;
     pos.SetTypeId("ns3::RandomDiscPositionAllocator");
-    pos.Set("X", StringValue("100.0"));
-    pos.Set("Y", StringValue("100.0"));
-    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=100]"));
+    pos.Set("X", StringValue("50.0"));
+    pos.Set("Y", StringValue("50.0"));
+    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=20]"));
 
     Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
     
@@ -109,66 +127,45 @@ int main(int argc, char *argv[]) {
 
     MobilityHelper mobility;
     mobility.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
-            "X", StringValue("100.0"),
-            "Y", StringValue("100.0"),
-            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=100]"));
-    mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
-            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
-            "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
-            "PositionAllocator", PointerValue(taPositionAlloc));
+            "X", StringValue("50.0"),
+            "Y", StringValue("50.0"),
+            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=20]"));
+    
+//    mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
+//            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
+//            "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
+//            "PositionAllocator", PointerValue(taPositionAlloc));
+
+    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
+            "Bounds", RectangleValue(Rectangle(30, 70, 30, 70)),
+            "Distance", DoubleValue(30),
+            "Speed", StringValue("ns3::UniformRandomVariable[Min=5|Max=20]"));
+    
     mobility.Install(wifiStaNodes);
-    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
-    mobility.Install(wifiApNode);
-    AnimationInterface::SetConstantPosition(p2pNodes.Get(1), 10, 30);
-    AnimationInterface::SetConstantPosition(csmaNodes.Get(1), 10, 33);
-
-    Ptr<BasicEnergySource> energySource = CreateObject<BasicEnergySource>();
-    Ptr<SimpleDeviceEnergyModel> energyModel = CreateObject<SimpleDeviceEnergyModel>();
-
-    energySource->SetInitialEnergy(300);
-    energyModel->SetEnergySource(energySource);
-    energySource->AppendDeviceEnergyModel(energyModel);
-    energyModel->SetCurrentA(20);
-
-    // aggregate energy source to node
-    wifiApNode.Get(0)->AggregateObject(energySource);
-
-    // Install internet stack
 
     InternetStackHelper stack;
     stack.Install(allNodes);
 
-    // Install Ipv4 addresses
+    Ipv4AddressHelper address;
+    address.SetBase("10.1.1.0", "255.255.255.0");
+    staInterfaces = address.Assign(devices);
+    
+    tid = TypeId::LookupByName("ns3::UdpSocketFactory");
+    Ptr<Socket> recvSink = Socket::CreateSocket(allNodes.Get(0), tid);
+    InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
+    recvSink->Bind(local);
+    recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
 
-    //    Ipv4AddressHelper address;
-    //    address.SetBase("10.1.1.0", "255.255.255.0");
-    //    Ipv4InterfaceContainer p2pInterfaces;
-    //    p2pInterfaces = address.Assign(p2pDevices);
-    //    address.SetBase("10.1.2.0", "255.255.255.0");
-    //    Ipv4InterfaceContainer csmaInterfaces;
-    //    csmaInterfaces = address.Assign(csmaDevices);
-    //    address.SetBase("10.1.3.0", "255.255.255.0");
-    //    Ipv4InterfaceContainer staInterfaces;
-    //    staInterfaces = address.Assign(staDevices);
-    //    Ipv4InterfaceContainer apInterface;
-    //    apInterface = address.Assign(apDevices);
+    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(nWifi - 1), tid);
+    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
+    source->Connect(remote);
+    // Tracing
+    wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);
 
-    // Install applications
-
-    //    UdpEchoServerHelper echoServer(9);
-    //    ApplicationContainer serverApps = echoServer.Install(csmaNodes.Get(1));
-    //    serverApps.Start(Seconds(1.0));
-    //    serverApps.Stop(Seconds(15.0));
-    //    UdpEchoClientHelper echoClient(csmaInterfaces.GetAddress(1), 9);
-    //    echoClient.SetAttribute("MaxPackets", UintegerValue(10));
-    //    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.)));
-    //    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
-    //    ApplicationContainer clientApps = echoClient.Install(wifiStaNodes);
-    //    clientApps.Start(Seconds(2.0));
-    //    clientApps.Stop(Seconds(15.0));
-
+    double duration = 120.0;
+    
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-    Simulator::Stop(Seconds(120.0));
+    Simulator::Stop(Seconds(duration));
 
     AnimationInterface anim("nascar-animation.xml"); // Mandatory
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i) {
@@ -180,20 +177,28 @@ int main(int argc, char *argv[]) {
     anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Boss"); // Optional
     anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
 
-    for (uint32_t i = 0; i < wifiApNode.GetN(); ++i) {
-        anim.UpdateNodeDescription(wifiApNode.Get(i), "AP"); // Optional
-        anim.UpdateNodeColor(wifiApNode.Get(i), 0, 255, 0); // Optional
-    }
-    for (uint32_t i = 0; i < csmaNodes.GetN(); ++i) {
-        anim.UpdateNodeDescription(csmaNodes.Get(i), "CSMA"); // Optional
-        anim.UpdateNodeColor(csmaNodes.Get(i), 0, 0, 255); // Optional 
-    }
+    UdpEchoClientHelper echoClient(staInterfaces.GetAddress(1), 9);
+    echoClient.SetAttribute("MaxPackets", UintegerValue(1));
+    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
+    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
+    
+    ApplicationContainer clientApps = echoClient.Install(allNodes.Get(0));
+    clientApps.Start(Seconds(0.0));
+    clientApps.Stop(Seconds(duration));    
 
     anim.EnablePacketMetadata(); // Optional
     anim.EnableIpv4RouteTracking("routingtable-wireless.xml", Seconds(0), Seconds(5), Seconds(0.25)); //Optional
-    anim.EnableWifiMacCounters(Seconds(0), Seconds(10)); //Optional
-    anim.EnableWifiPhyCounters(Seconds(0), Seconds(10)); //Optional
+    anim.EnableWifiMacCounters(Seconds(0), Seconds(duration)); //Optional
+    anim.EnableWifiPhyCounters(Seconds(0), Seconds(duration)); //Optional
+    
+    Time interPacketInterval = Seconds (interval);
+    
+    Simulator::ScheduleWithContext (source->GetNode ()->GetId (),
+                                  Seconds (1.0), &GenerateTraffic, 
+                                  source, packetSize, 69871, interPacketInterval);
+  
     Simulator::Run();
     Simulator::Destroy();
+    
     return 0;
 }
