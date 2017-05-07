@@ -131,15 +131,15 @@ int main(int argc, char *argv[])
             "Y", StringValue("50.0"),
             "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=20]"));
     
-//    mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
-//            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
-//            "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
-//            "PositionAllocator", PointerValue(taPositionAlloc));
+    mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
+            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
+            "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
+            "PositionAllocator", PointerValue(taPositionAlloc));
 
-    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
-            "Bounds", RectangleValue(Rectangle(30, 70, 30, 70)),
-            "Distance", DoubleValue(30),
-            "Speed", StringValue("ns3::UniformRandomVariable[Min=5|Max=20]"));
+//    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
+//            "Bounds", RectangleValue(Rectangle(30, 70, 30, 70)),
+//            "Distance", DoubleValue(30),
+//            "Speed", StringValue("ns3::UniformRandomVariable[Min=5|Max=20]"));
     
     mobility.Install(wifiStaNodes);
 
