@@ -53,31 +53,32 @@ void ReceivePacket(Ptr<Socket> socket) {
 static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
         uint32_t pktCount, Time pktInterval) {
     // todo: num of nodes    
-//    int r = rand() % nWifi;
-//    int r2 = rand() % nWifi;
-//    
-//    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(r), tid);
-//    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(r2, 0), 80);
-//    source->Connect(remote);
-//    
-//    if (pktCount > 0) {
-//        source->Send(Create<Packet> (pktSize));
-//        Simulator::Schedule(pktInterval, &GenerateTraffic,
-//                socket, pktSize, pktCount - 1, pktInterval);
-//    }
-//    
-//    source->Close();
+    int r = rand() % nWifi;
+    int r2 = rand() % nWifi;
+    
+    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(r), tid);
+    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(r2, 0), 80);
+    source->Connect(remote);
+    
+    if (pktCount > 0) {
+        source->Send(Create<Packet> (pktSize));
+        Simulator::Schedule(pktInterval, &GenerateTraffic,
+                socket, pktSize, pktCount - 1, pktInterval);
+    }
+    
+    source->Close();
 }
 
 int main(int argc, char *argv[]) 
 {
-    nWifi = 200;
+    nWifi = 2;
     double rss = -80; // -dBm
     uint32_t packetSize = 1000; // bytes
     uint32_t numPackets = 1;
     double interval = 1.0; // seconds
     
-    srand(time(0));
+    SeedManager::SetSeed (10); // nastavit raz, neodporuca sa menit
+    SeedManager::SetRun (1);   // pre zarucenie nezavislosti je lepsi
 
     CommandLine cmd;
     cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
@@ -119,7 +120,7 @@ int main(int argc, char *argv[])
     pos.SetTypeId("ns3::RandomDiscPositionAllocator");
     pos.Set("X", StringValue("50.0"));
     pos.Set("Y", StringValue("50.0"));
-    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=20]"));
+    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=50]"));
 
     Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
     
@@ -129,7 +130,7 @@ int main(int argc, char *argv[])
     mobility.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
             "X", StringValue("50.0"),
             "Y", StringValue("50.0"),
-            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=20]"));
+            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=50]"));
     
     mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
             "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
@@ -169,13 +170,13 @@ int main(int argc, char *argv[])
 
     AnimationInterface anim("nascar-animation.xml"); // Mandatory
     for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i) {
-        anim.UpdateNodeDescription(wifiStaNodes.Get(i), "STA"); // Optional
+        anim.UpdateNodeDescription(wifiStaNodes.Get(i), std::to_string(i)); // Optional
         anim.UpdateNodeColor(wifiStaNodes.Get(i), 255, 0, 0); // Optional
     }
 
     //g: set special name for node 0
-    anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Boss"); // Optional
-    anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
+//    anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Boss"); // Optional
+//    anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
 
     UdpEchoClientHelper echoClient(staInterfaces.GetAddress(1), 9);
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
