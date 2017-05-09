@@ -97,7 +97,10 @@ int main(int argc, char *argv[])
     uint32_t numPackets = 50;
     double interval = 1; // seconds
     
-    srand(time(0));
+    //SeedManager::SetSeed (10); // nastavit raz, neodporuca sa menit
+    SeedManager::SetRun (1);   // pre zarucenie nezavislosti je lepsi
+    
+    //srand(time(0));
     
     CommandLine cmd;
     cmd.AddValue("nWifi", "Number of Cars", nWifi);
@@ -190,23 +193,17 @@ int main(int argc, char *argv[])
     
     tid = TypeId::LookupByName("ns3::UdpSocketFactory");
     
-    
-    Ptr<Socket> recvSink[12];
-    for (uint32_t i = 0; i < 12; ++i) {
-        recvSink[i] = Socket::CreateSocket(allNodes.Get(i), tid);
-        InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
-        recvSink[i]->Bind(local);
-        recvSink[i]->SetRecvCallback(MakeCallback(&ReceivePacket));
-    }
+
+    Ptr<Socket> recvSink = Socket::CreateSocket(allNodes.Get(0), tid);
+    InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
+    recvSink->Bind(local);
+    recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
    
-    
-    Ptr<Socket> source[12];
-    
-    for (uint32_t i = 0; i < 12; ++i) {
-        source[i] = Socket::CreateSocket(allNodes.Get(i), tid);
-        InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
-        source[i]->Connect(remote);
-    }
+
+    Ptr<Socket>  source = Socket::CreateSocket(allNodes.Get(nWifi - 1), tid);
+    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
+    source->Connect(remote);
+  
     
     // Tracing off?
     wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);
@@ -216,15 +213,13 @@ int main(int argc, char *argv[])
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
     Time interPacketInterval = Seconds (interval);
     
-    for (uint32_t i = 0; i < 12; ++i) {
-        Simulator::ScheduleWithContext (source[i]->GetNode ()->GetId (),
-            Seconds (0.0),
-            &GenerateTraffic, 
-            source[i],
-            packetSize,
-            numPackets, // number of packets
-            interPacketInterval);
-    }
+    Simulator::ScheduleWithContext (source->GetNode ()->GetId (),
+        Seconds (0.0),
+        &GenerateTraffic, 
+        source,
+        packetSize,
+        numPackets, // number of packets
+        interPacketInterval);
     
 
     Simulator::Stop(Seconds(duration));
