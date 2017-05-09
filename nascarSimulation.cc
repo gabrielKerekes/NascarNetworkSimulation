@@ -29,6 +29,7 @@
 #include "ns3/basic-energy-source.h"
 #include "ns3/simple-device-energy-model.h"
 #include "ns3/config-store-module.h"
+#include "ns3/gnuplot.h"
 
 #include <iostream>
 #include <fstream>
@@ -39,9 +40,13 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WirelessAnimationExample");
 
-uint32_t nWifi;
+int sentPackets = 0;
+int receivedPackets = 0;
+
+uint32_t nWifiActiveNodes;
 uint32_t nObstacles;
 NodeContainer allNodes;
+NodeContainer activeNodes;
 NodeContainer passiveNodes;
 TypeId tid;
 Ipv4InterfaceContainer staInterfaces;
@@ -49,6 +54,7 @@ Ipv4InterfaceContainer staInterfaces;
 void ReceivePacket(Ptr<Socket> socket) {
     while (socket->Recv()) {
         NS_LOG_UNCOND("Received one packet!");
+        receivedPackets++;
         std::cout << "Packet received from id" << socket->GetNode()->GetId()  << std::endl;
     }
 }
@@ -60,6 +66,7 @@ static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
     if (pktCount > 0)
     {
         socket->Send (Create<Packet> (pktSize));
+        sentPackets++;
         std::cout << "Packet sent from id" << socket->GetNode()->GetId() << std::endl;
         Simulator::Schedule (pktInterval, &GenerateTraffic, 
                 socket, pktSize,pktCount-1, pktInterval);
@@ -90,7 +97,7 @@ static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
 
 int main(int argc, char *argv[]) 
 {
-    nWifi = 20; // number of cars (12) + number of obstacles (8)
+    nWifiActiveNodes = 12;
     nObstacles = 8;
     double rss = -80; // -dBm
     uint32_t packetSize = 1000; // bytes
@@ -102,18 +109,25 @@ int main(int argc, char *argv[])
     
     //srand(time(0));
     
+//    Gnuplot graf("nascarThroughput.png");
+//    graf.SetTerminal("png");
+//    graf.SetTitle("Through");
+//    graf.SetLegend("Pocet bodov [m]","Priepustnost[Mbit/s]");
+//    graf.AppendExtra("set xrange[0:10]");
+//    Gnuplot2dDataset data;
+//    data.SetStyle (Gnuplot2dDataset::LINES_POINTS);
+    
     CommandLine cmd;
-    cmd.AddValue("nWifi", "Number of Cars", nWifi);
+    cmd.AddValue("nWifi", "Number of Cars", nWifiActiveNodes);
     cmd.AddValue("nObsacles", "Number of Obstacles", nObstacles);
     cmd.Parse(argc, argv);
     
-    NodeContainer wifiStaNodes;
-    wifiStaNodes.Create(nWifi);
-    allNodes.Add(wifiStaNodes);
+    activeNodes.Create(nWifiActiveNodes);
     
-    NodeContainer obstacleNodes;
-    obstacleNodes.Create(nObstacles);
-    passiveNodes.Add(obstacleNodes);
+    passiveNodes.Create(nObstacles);
+    
+    allNodes.Add(activeNodes);
+    allNodes.Add(passiveNodes);
     
     std::string phyMode ("DsssRate1Mbps");
     
@@ -142,7 +156,7 @@ int main(int argc, char *argv[])
             "ControlMode", StringValue(phyMode));
     // Set it to adhoc mode
     wifiMac.SetType("ns3::AdhocWifiMac");
-    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, wifiStaNodes);
+    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, activeNodes);
     
     ObjectFactory pos;
     pos.SetTypeId("ns3::RandomDiscPositionAllocator");
@@ -165,7 +179,7 @@ int main(int argc, char *argv[])
             "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
             "PositionAllocator", PointerValue(taPositionAlloc));
     
-    mobility.Install(wifiStaNodes);
+    mobility.Install(activeNodes);
     
     // Mobility Obstacles
     
@@ -178,7 +192,7 @@ int main(int argc, char *argv[])
             "GridWidth", UintegerValue (3),
             "LayoutType", StringValue ("RowFirst"));
     mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-    mobility.Install (obstacleNodes);
+    mobility.Install (passiveNodes);
     
     // Internet
     
@@ -194,13 +208,13 @@ int main(int argc, char *argv[])
     tid = TypeId::LookupByName("ns3::UdpSocketFactory");
     
 
-    Ptr<Socket> recvSink = Socket::CreateSocket(allNodes.Get(0), tid);
+    Ptr<Socket> recvSink = Socket::CreateSocket(activeNodes.Get(0), tid);
     InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
     recvSink->Bind(local);
     recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
    
 
-    Ptr<Socket>  source = Socket::CreateSocket(allNodes.Get(nWifi - 1), tid);
+    Ptr<Socket>  source = Socket::CreateSocket(activeNodes.Get(nWifiActiveNodes - 1), tid);
     InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
     source->Connect(remote);
   
@@ -227,7 +241,7 @@ int main(int argc, char *argv[])
     // NetAnim
     AnimationInterface anim("nascar.xml"); // Mandatory
     
-    for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i) {
+    for (uint32_t i = 0; i < nWifiActiveNodes; i++) {
         //anim.UpdateNodeDescription(wifiStaNodes.Get(i), "CAR"); // Optional
         if (i % 4 == 0) {
             uint32_t carImgIdGreen = anim.AddResource("/home/student/Documents/ns3/ns-3.24.1/greencar.png");
@@ -245,14 +259,14 @@ int main(int argc, char *argv[])
         //anim.UpdateNodeColor(wifiStaNodes.Get(i), 255, 0, 0); // Optional
         anim.UpdateNodeSize(i, 6, 1); 
     }
-    for (uint32_t i = 0; i < obstacleNodes.GetN(); ++i) {
+    for (uint32_t i = nWifiActiveNodes; i < nWifiActiveNodes + nObstacles; i++) {
         //anim.UpdateNodeDescription(obstacleNodes.Get(i), "Obstacle"); // Optional
-        anim.UpdateNodeColor(obstacleNodes.Get(i), 0, 0, 0); // Optional black
-        anim.UpdateNodeSize(i, 0.5, 0.5);
+        anim.UpdateNodeColor(allNodes.Get(i), 0, 0, 0); // Optional black
+        anim.UpdateNodeSize(i, 1, 1);
     }
     
     //g: set special name for node 0
-    anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Master"); // Optional
+    //anim.UpdateNodeDescription(activeNodes.Get(0), "Master"); // Optional
     //anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
     
     UdpEchoClientHelper echoClient(staInterfaces.GetAddress(1), 9);
@@ -260,7 +274,7 @@ int main(int argc, char *argv[])
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
     echoClient.SetAttribute("PacketSize", UintegerValue(1024));
     
-    ApplicationContainer clientApps = echoClient.Install(allNodes.Get(0));
+    ApplicationContainer clientApps = echoClient.Install(activeNodes.Get(0));
     clientApps.Start(Seconds(0.0));
     clientApps.Stop(Seconds(duration));    
     
@@ -271,6 +285,9 @@ int main(int argc, char *argv[])
     
     Simulator::Run();
     Simulator::Destroy();
+    
+    std::cout << "SendPackets -> " << sentPackets << std::endl;
+    std::cout << "ReceivedPackets -> " << receivedPackets << std::endl;
     
     return 0;
 }
