@@ -70,11 +70,11 @@ static void GenerateTraffic(Ptr<Socket> socket, double pktSize,
 
 void DeviationStuff(double runsThroughputs[numOfRuns][numOfTests], int numOfRuns, int numOfTests)
 {       
-    Gnuplot graf("nascarThroughput.png");
-    graf.SetTerminal("png");
+    Gnuplot graf("nascarThroughput.svg");
+    graf.SetTerminal("svg");
     graf.SetTitle("Through");
     graf.SetLegend("Pocet bodov [m]","Priepustnost[Mbit/s]");
-    graf.AppendExtra("set xrange[0:10]");
+    graf.AppendExtra("set xrange[0:50]");
     Gnuplot2dDataset data;
     data.SetStyle (Gnuplot2dDataset::LINES_POINTS);
     data.SetErrorBars(Gnuplot2dDataset::Y);
@@ -99,10 +99,11 @@ void DeviationStuff(double runsThroughputs[numOfRuns][numOfTests], int numOfRuns
         
         std::cout << "Test: " << testNumber << " odcyhlka: " << deviations[testNumber] << "\n\n";
         
-        double numOfNodes = (testNumber+1)*5;
+        double numOfNodes = (testNumber+1)*3;
         data.Add(numOfNodes, averages[testNumber], deviations[testNumber]);
     }    
     
+    graf.AddDataset(data);
     std::ofstream plotFile ("graf.plt");
     graf.GenerateOutput (plotFile);
     plotFile.close ();
@@ -117,13 +118,13 @@ int main(int argc, char *argv[]) {
         for (int testNumber = 0; testNumber < numOfTests; testNumber++) {
             //double rss = -95.0; // -dBm   // -95 - vsetko prijme ... -96 - nic neprijme
             double packetSize = 1024; // bytes
-            double numPackets = 500;
+            double numPackets = 100;
             double interval = 0.5; // seconds
 
             int sentPackets = 0;
             int receivedPackets = 0;
 
-            double duration = 120.0;
+            double duration = 240.0;
 
             int spawningMinDistance = 0;
             int spawningMaxDistance = 10;
@@ -131,7 +132,7 @@ int main(int argc, char *argv[]) {
             int minDistance = 0;
             int maxDistance = 10;
 
-            double nWifiActiveNodes = (testNumber + 1)*5;
+            double nWifiActiveNodes = (testNumber + 1)*3;
             double nObstacles = 8;
             NodeContainer allNodes;
             NodeContainer activeNodes;
@@ -234,15 +235,12 @@ int main(int argc, char *argv[]) {
                 sources[i]->Connect(remote);
             }
 
-            // Tracing off?
-            wifiPhy.EnablePcap("wifi-simple-adhoc", devices);
-
             Ipv4GlobalRoutingHelper::PopulateRoutingTables();
             Time interPacketInterval = Seconds(interval);
 
             for (int i = 0; i < activeNodes.GetN(); i++) {
                 Simulator::ScheduleWithContext(sources[i]->GetNode()->GetId(),
-                        Seconds(0.0),
+                        Seconds(20.0),
                         &GenerateTraffic,
                         sources[i],
                         packetSize,
