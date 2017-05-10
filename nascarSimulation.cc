@@ -203,7 +203,6 @@ int main(int argc, char *argv[])
     address.SetBase("10.1.1.0", "255.255.255.0");
     staInterfaces = address.Assign(devices);
     
-    //int randomReceive = rand() % nWifi;
     
     tid = TypeId::LookupByName("ns3::UdpSocketFactory");
     
@@ -212,11 +211,20 @@ int main(int argc, char *argv[])
     InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
     recvSink->Bind(local);
     recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
+    
+    Ptr<Socket> recvSink2 = Socket::CreateSocket(activeNodes.Get(1), tid);
+    InetSocketAddress local2 = InetSocketAddress(Ipv4Address::GetAny(), 80);
+    recvSink2->Bind(local2);
+    recvSink2->SetRecvCallback(MakeCallback(&ReceivePacket));
    
 
     Ptr<Socket>  source = Socket::CreateSocket(activeNodes.Get(nWifiActiveNodes - 1), tid);
     InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
     source->Connect(remote);
+    
+    Ptr<Socket>  source2 = Socket::CreateSocket(activeNodes.Get(nWifiActiveNodes - 2), tid);
+    InetSocketAddress remote2 = InetSocketAddress(staInterfaces.GetAddress(1, 0), 80); // important to set different remote address
+    source2->Connect(remote2);
   
     
     // Tracing off?
@@ -231,6 +239,14 @@ int main(int argc, char *argv[])
         Seconds (0.0),
         &GenerateTraffic, 
         source,
+        packetSize,
+        numPackets, // number of packets
+        interPacketInterval);
+    
+    Simulator::ScheduleWithContext (source2->GetNode ()->GetId (),
+        Seconds (0.0),
+        &GenerateTraffic, 
+        source2,
         packetSize,
         numPackets, // number of packets
         interPacketInterval);
@@ -269,14 +285,31 @@ int main(int argc, char *argv[])
     //anim.UpdateNodeDescription(activeNodes.Get(0), "Master"); // Optional
     //anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
     
-    UdpEchoClientHelper echoClient(staInterfaces.GetAddress(1), 9);
+    UdpServerHelper udpServer (9);
+    
+    ApplicationContainer clientContainer = udpServer.Install(activeNodes.Get(0));
+    clientContainer.Start(Seconds(0.0));
+    clientContainer.Stop(Seconds(duration));
+    
+    UdpEchoClientHelper echoClient(staInterfaces.GetAddress(0), 9);
     echoClient.SetAttribute("MaxPackets", UintegerValue(1));
     echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
     echoClient.SetAttribute("PacketSize", UintegerValue(1024));
     
+    UdpEchoClientHelper echoClient2(staInterfaces.GetAddress(1), 9);
+    echoClient2.SetAttribute("MaxPackets", UintegerValue(1));
+    echoClient2.SetAttribute("Interval", TimeValue(Seconds(1.0)));
+    echoClient2.SetAttribute("PacketSize", UintegerValue(1024));
+    
     ApplicationContainer clientApps = echoClient.Install(activeNodes.Get(0));
     clientApps.Start(Seconds(0.0));
     clientApps.Stop(Seconds(duration));    
+    
+    // Not sure if needed 2nd times, because it works without it as well
+    ApplicationContainer clientApps2 = echoClient2.Install(activeNodes.Get(1));
+    clientApps2.Start(Seconds(0.0));
+    clientApps2.Stop(Seconds(duration));  
+   
     
     anim.EnablePacketMetadata(); // Optional
     anim.EnableIpv4RouteTracking("routingtable-wireless.xml", Seconds(0), Seconds(5), Seconds(0.25)); //Optional
@@ -286,8 +319,17 @@ int main(int argc, char *argv[])
     Simulator::Run();
     Simulator::Destroy();
     
+    double throughput = 0;
+    //UDP
+    uint32_t totalPacketsThrough = DynamicCast<UdpServer> (clientContainer.Get (0))->GetReceived ();
+    throughput = totalPacketsThrough * packetSize * 8 / (duration * 1000000.0); //Mbit/s
+    //data.Add(distance,throughput);
+          
+    
     std::cout << "SendPackets -> " << sentPackets << std::endl;
     std::cout << "ReceivedPackets -> " << receivedPackets << std::endl;
+    
+    std::cout << throughput << " Mbit/s" << std::endl;
     
     return 0;
 }
