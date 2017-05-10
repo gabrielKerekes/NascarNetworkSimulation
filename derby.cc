@@ -41,39 +41,22 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WirelessAnimationExample");
 
-int sentPackets = 0;
-int receivedPackets = 0;
-
-double duration = 10.0;
-
-int minDistance = 200;
-int maxDistance = 300;
-
-uint32_t nWifiActiveNodes;
-uint32_t nObstacles;
-NodeContainer allNodes;
-NodeContainer activeNodes;
-NodeContainer passiveNodes;
-TypeId tid;
-Ipv4InterfaceContainer staInterfaces;
-
 void ReceivePacket(Ptr<Socket> socket) {
     while (socket->Recv()) {
         //NS_LOG_UNCOND("Received one packet!");
-        receivedPackets++;
-        std::cout << "Packet received from id" << socket->GetNode()->GetId()  << std::endl;
+        //receivedPackets++;
+        //std::cout << "Packet received from id" << socket->GetNode()->GetId()  << std::endl;
     }
 }
 
-static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
-        uint32_t pktCount, Time pktInterval) {
+static void GenerateTraffic(Ptr<Socket> socket, double pktSize,
+        double pktCount, Time pktInterval) {
 
     
     if (pktCount > 0)
     {
         socket->Send (Create<Packet> (pktSize));
-        sentPackets++;
-        std::cout << "Packet sent from id" << socket->GetNode()->GetId() << std::endl;
+        //std::cout << "Packet sent from id" << socket->GetNode()->GetId() << std::endl;
         Simulator::Schedule (pktInterval, &GenerateTraffic, 
                 socket, pktSize,pktCount-1, pktInterval);
     }
@@ -85,18 +68,41 @@ static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
 }
 
 int main(int argc, char *argv[]) 
-{
-    nWifiActiveNodes = 10;
-    nObstacles = 8;
-    //double rss = -95.0; // -dBm   // -95 - vsetko prijme ... -96 - nic neprijme
-    uint32_t packetSize = 1472; // bytes
-    uint32_t numPackets = 1000;
-    double interval = 0.1; // seconds
-    
-    SeedManager::SetSeed (10); // nastavit raz, neodporuca sa menit
-    //SeedManager::SetRun (1);   // pre zarucenie nezavislosti je lepsi
-    
+{    
     srand(time(0));
+    
+    int numOfTests = 10;
+    double totalThroughputs[numOfTests], totalPacketsSents[numOfTests], totalPacketsReceiveds[numOfTests];
+    for (int cycleNumber = 0; cycleNumber < numOfTests; cycleNumber++)
+    {
+        //double rss = -95.0; // -dBm   // -95 - vsetko prijme ... -96 - nic neprijme
+        double packetSize = 1024; // bytes
+        double numPackets = 1000;
+        double interval = 0.1; // seconds
+    
+        int sentPackets = 0;
+        int receivedPackets = 0;
+
+        double duration = 120.0;
+
+        int spawningMinDistance = 0;
+        int spawningMaxDistance = 10;
+        
+        int minDistance = 0;  
+        int maxDistance = 10;
+
+        double nWifiActiveNodes = (cycleNumber+1)*5;
+        double nObstacles = 8;
+        NodeContainer allNodes;
+        NodeContainer activeNodes;
+        NodeContainer passiveNodes;
+        TypeId tid;
+        Ipv4InterfaceContainer staInterfaces;
+    
+    SeedManager::SetSeed (rand()); 
+    // nastavit raz, neodporuca sa menit
+    SeedManager::SetRun (1);   // pre zarucenie nezavislosti je lepsi
+    
     
 //    Gnuplot graf("nascarThroughput.png");
 //    graf.SetTerminal("png");
@@ -113,10 +119,10 @@ int main(int argc, char *argv[])
     
     activeNodes.Create(nWifiActiveNodes);
     
-    passiveNodes.Create(nObstacles);
+//    passiveNodes.Create(nObstacles);
     
     allNodes.Add(activeNodes);
-    allNodes.Add(passiveNodes);
+//    allNodes.Add(passiveNodes);
     
     std::string phyMode ("DsssRate1Mbps");
     
@@ -145,9 +151,7 @@ int main(int argc, char *argv[])
             "ControlMode", StringValue(phyMode));
     // Set it to adhoc mode
     wifiMac.SetType("ns3::AdhocWifiMac");
-    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, activeNodes);
-    
-    
+    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, activeNodes);    
     
     // Mobility Cars
     
@@ -155,7 +159,7 @@ int main(int argc, char *argv[])
     mobility.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
             "X", StringValue(std::to_string(maxDistance)),
             "Y", StringValue(std::to_string(maxDistance)),
-            "Rho", StringValue("ns3::UniformRandomVariable[Min="+ std::to_string(minDistance) +"|Max=" + std::to_string(maxDistance) + "]"));
+            "Rho", StringValue("ns3::UniformRandomVariable[Min="+ std::to_string(spawningMinDistance) +"|Max=" + std::to_string(spawningMaxDistance) + "]"));
     
     ObjectFactory pos;
     pos.SetTypeId("ns3::RandomDiscPositionAllocator");
@@ -166,24 +170,11 @@ int main(int argc, char *argv[])
     Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
     
     mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
-            "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
+            "Speed", StringValue("ns3::UniformRandomVariable[Min=50|Max=200]"),
             "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
             "PositionAllocator", PointerValue(taPositionAlloc));
     
     mobility.Install(activeNodes);
-    
-    // Mobility Obstacles
-    
-    MobilityHelper mo;
-    mo.SetPositionAllocator ("ns3::GridPositionAllocator",//vzdialenost
-            "MinX", DoubleValue (0.0),
-            "MinY", DoubleValue (0.0),
-            "DeltaX", DoubleValue (10),
-            "DeltaY", DoubleValue (10),
-            "GridWidth", UintegerValue (3),
-            "LayoutType", StringValue ("RowFirst"));
-    mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-    mobility.Install (passiveNodes);
     
     // Internet
     
@@ -192,59 +183,47 @@ int main(int argc, char *argv[])
     
     Ipv4AddressHelper address;
     address.SetBase("10.1.1.0", "255.255.255.0");
-    staInterfaces = address.Assign(devices);
-    
+    staInterfaces = address.Assign(devices);    
     
     tid = TypeId::LookupByName("ns3::UdpSocketFactory");
-
-    Ptr<Socket> recvSink = Socket::CreateSocket(activeNodes.Get(0), tid);
-    InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
-    recvSink->Bind(local);
-    recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
     
-    Ptr<Socket> recvSink2 = Socket::CreateSocket(activeNodes.Get(1), tid);
-    InetSocketAddress local2 = InetSocketAddress(Ipv4Address::GetAny(), 80);
-    recvSink2->Bind(local2);
-    recvSink2->SetRecvCallback(MakeCallback(&ReceivePacket));
-   
+    Ptr<Socket> recvSinks[activeNodes.GetN()];
+    Ptr<Socket> sources[activeNodes.GetN()];
+    for (int i = 0; i < activeNodes.GetN(); i++)
+    {        
+        recvSinks[i] = Socket::CreateSocket(activeNodes.Get(i), tid);
+        InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
+        recvSinks[i]->Bind(local);
+        recvSinks[i]->SetRecvCallback(MakeCallback(&ReceivePacket));
 
-    Ptr<Socket>  source = Socket::CreateSocket(activeNodes.Get(nWifiActiveNodes - 1), tid);
-    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
-    source->Connect(remote);
-    
-    Ptr<Socket>  source2 = Socket::CreateSocket(activeNodes.Get(nWifiActiveNodes - 2), tid);
-    InetSocketAddress remote2 = InetSocketAddress(staInterfaces.GetAddress(1, 0), 80); // important to set different remote address
-    source2->Connect(remote2);
-  
+        int r;
+        while ((r = rand() % activeNodes.GetN()) == i);
+        
+        sources[i] = Socket::CreateSocket(activeNodes.Get(r), tid);
+        InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(i, 0), 80);
+        sources[i]->Connect(remote);
+    } 
     
     // Tracing off?
-    wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);
-    
+    wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);    
     
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
     Time interPacketInterval = Seconds (interval);
     
-    Simulator::ScheduleWithContext (source->GetNode ()->GetId (),
-        Seconds (0.0),
-        &GenerateTraffic, 
-        source,
-        packetSize,
-        numPackets, // number of packets
-        interPacketInterval);
-    
-//    Simulator::ScheduleWithContext (source2->GetNode ()->GetId (),
-//        Seconds (0.0),
-//        &GenerateTraffic, 
-//        source2,
-//        packetSize,
-//        numPackets, // number of packets
-//        interPacketInterval);
-    
+    for (int i = 0; i < activeNodes.GetN(); i++)
+    {            
+        Simulator::ScheduleWithContext (sources[i]->GetNode ()->GetId (),
+            Seconds (0.0),
+            &GenerateTraffic, 
+            sources[i],
+            packetSize,
+            numPackets/activeNodes.GetN(), // number of packets
+            interPacketInterval);
+    }
     
     // FlowMon
     FlowMonitorHelper flowmon;
-    Ptr<FlowMonitor> monitor = flowmon.InstallAll ();
-    
+    Ptr<FlowMonitor> monitor = flowmon.InstallAll ();    
 
     Simulator::Stop(Seconds(duration));
     
@@ -260,43 +239,11 @@ int main(int argc, char *argv[])
         //anim.UpdateNodeColor(wifiStaNodes.Get(i), 255, 0, 0); // Optional
         anim.UpdateNodeSize(i, 6, 1); 
     }
-    for (uint32_t i = nWifiActiveNodes; i < nWifiActiveNodes + nObstacles; i++) {
+    for (uint32_t i = nWifiActiveNodes; i < nWifiActiveNodes/* + nObstacles*/; i++) {
         //anim.UpdateNodeDescription(obstacleNodes.Get(i), "Obstacle"); // Optional
         anim.UpdateNodeColor(allNodes.Get(i), 0, 0, 0); // Optional black
         anim.UpdateNodeSize(i, 1, 1);
     }
-    
-    //g: set special name for node 0
-    //anim.UpdateNodeDescription(activeNodes.Get(0), "Master"); // Optional
-    //anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
-    
-    UdpServerHelper udpServer (9);
-    
-    ApplicationContainer clientContainer = udpServer.Install(activeNodes.Get(0));
-    clientContainer.Start(Seconds(0.0));
-    clientContainer.Stop(Seconds(duration+1));
-    
-//    ApplicationContainer clientContainer2 = udpServer.Install(activeNodes.Get(1));
-//    clientContainer2.Start(Seconds(0.0));
-//    clientContainer2.Stop(Seconds(duration+1));
-    
-    UdpClientHelper echoClient(staInterfaces.GetAddress(0), 9);
-    echoClient.SetAttribute("MaxPackets", UintegerValue(100000));
-    echoClient.SetAttribute("Interval", TimeValue(Seconds(interval)));
-    echoClient.SetAttribute("PacketSize", UintegerValue(packetSize));
-    
-//    UdpClientHelper echoClient2(staInterfaces.GetAddress(1), 9);
-//    echoClient.SetAttribute("MaxPackets", UintegerValue(100000));
-//    echoClient.SetAttribute("Interval", TimeValue(Seconds(interval)));
-//    echoClient.SetAttribute("PacketSize", UintegerValue(packetSize));
-    
-    ApplicationContainer clientApps = echoClient.Install(activeNodes.Get(0));
-    clientApps.Start(Seconds(0.0));
-    clientApps.Stop(Seconds(duration+1));  
-    
-//    ApplicationContainer clientApps2 = echoClient2.Install(activeNodes.Get(1));
-//    clientApps.Start(Seconds(0.0));
-//    clientApps.Stop(Seconds(duration+1)); 
     
     anim.EnablePacketMetadata(); // Optional
     anim.EnableIpv4RouteTracking("routingtable-wireless.xml", Seconds(0), Seconds(duration), Seconds(0.25)); //Optional
@@ -306,56 +253,46 @@ int main(int argc, char *argv[])
     Simulator::Run();
     
     // FlowMonitor
-        monitor->CheckForLostPackets ();
-        Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
-        FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats ();
-        double throughput = 0;
-        for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
-        {
-            // first 2 FlowIds are for ECHO apps, we don't want to display them
-            //
-            // Duration for throughput measurement is 9.0 seconds, since 
-            //   StartTime of the OnOffApplication is at about "second 1"
-            // and 
-            //   Simulator::Stops at "second 10".
-            //if (i->first > 2)
-            //  {
-            Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
-            std::cout << "Flow " << i->first - 2 << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
-            std::cout << "  Tx Packets: " << i->second.txPackets << "\n";
-            std::cout << "  Tx Bytes:   " << i->second.txBytes << "\n";
-            std::cout << "  TxOffered:  " << i->second.txBytes * 8.0 / 10 / 1000 / 1000  << " Mbps\n";
-            std::cout << "  Rx Packets: " << i->second.rxPackets << "\n";
-            std::cout << "  Rx Bytes:   " << i->second.rxBytes << "\n";
-            std::cout << "  Throughput: " << i->second.rxBytes * 8.0 / 10 / 1000 / 1000  << " Mbps\n";
-            throughput = i->second.rxBytes * 8.0 / 10 / 1000 / 1000;
-            //  }
-        }
+    monitor->CheckForLostPackets ();
+    Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+    FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats ();
+    double totalThroughput = 0;
+    double totalPacketsSent = 0;
+    double totalPacketsReceived = 0;
+    for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
+    {
+        double packetsSent = i->second.txPackets;
+        double packetsReceived = i->second.rxPackets;
+        double throughput = i->second.rxBytes * 8.0 / (duration * 1000000.0);
+        
+        Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+        std::cout << "Flow " << i->first - 2 << " (" << t.sourceAddress << " -> " << t.destinationAddress << ")\n";
+        std::cout << "  Tx Packets: " << packetsSent << "\n";
+        std::cout << "  TxOffered:  " << i->second.txBytes * 8.0 / (duration * 1000000.0) << " Mbps\n";
+        std::cout << "  Rx Packets: " << packetsReceived << "\n";
+        std::cout << "  Throughput: " << throughput << " Mbps\n";
+        
+        totalThroughput += throughput;
+        totalPacketsSent += packetsSent;
+        totalPacketsReceived += packetsReceived;
+    }   
     
+    std::cout << "\n" << "Total throughput: " << totalThroughput << " Mbps\n";
+    std::cout << "Total packets sent: " << totalPacketsSent << "\n";
+    std::cout << "Total packets received: " << totalPacketsReceived << "\n";
+    
+    totalThroughputs[cycleNumber] = totalThroughput;
+    totalPacketsSents[cycleNumber] = totalPacketsSent;
+    totalPacketsReceiveds[cycleNumber] = totalPacketsReceived;
     
     Simulator::Destroy();
+    }
     
-    std::cout << nWifiActiveNodes << "\t\t\t" << throughput << " Mbit/s" << std::endl;
-    
-    double throughput1 = 0;
-    double throughput2 = 0;
-    //UDP
-    uint32_t totalPacketsThrough1 = DynamicCast<UdpServer> (clientContainer.Get (0))->GetReceived ();
-    throughput1 = totalPacketsThrough1 * packetSize * 8 / (duration * 1000000.0); //Mbit/s
-    
-//    uint32_t totalPacketsThrough2 = DynamicCast<UdpServer> (clientContainer.Get (1))->GetReceived ();
-//    throughput2 = totalPacketsThrough2 * packetSize * 8 / (duration * 1000000.0); //Mbit/s
-    //data.Add(distance,throughput);
-          
-    
-    std::cout << "SendPackets -> " << sentPackets << std::endl;
-    std::cout << "ReceivedPackets -> " << receivedPackets << std::endl;
-    
-    std::cout << "Total Packet Through (first node only) - " << totalPacketsThrough1 << std::endl;
-    std::cout << "Throughput (first node only) - " << throughput1 << " Mbit/s" << std::endl;
-    
-//    std::cout << "Total Packet Through (second node only) " << totalPacketsThrough2 << std::endl;
-//    std::cout << "Throughput (second node only) - " << throughput2 << " Mbit/s" << std::endl;
+    std::cout << "\n";
+    for (int i = 0; i < numOfTests; i++)
+    {
+        std::cout << totalThroughputs[i] << "Mbps - " << totalPacketsReceiveds[i] << "/" << totalPacketsSents[i] << "\n";
+    }
     
     return 0;
 }
