@@ -29,177 +29,274 @@
 #include "ns3/basic-energy-source.h"
 #include "ns3/simple-device-energy-model.h"
 #include "ns3/config-store-module.h"
+#include "ns3/flow-monitor-module.h"
+#include "ns3/gnuplot.h"
 
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <string>
+#include <math.h>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("WirelessAnimationExample");
 
-uint32_t nWifi;
-NodeContainer allNodes;
-TypeId tid;
-Ipv4InterfaceContainer staInterfaces;
-    
+const int numOfRuns = 2;
+const int numOfTests = 5;
+const int nodesMultiplier = 3;
+
 void ReceivePacket(Ptr<Socket> socket) {
     while (socket->Recv()) {
-        NS_LOG_UNCOND("Received one packet!");
+        //NS_LOG_UNCOND("Received one packet!");
     }
 }
 
-static void GenerateTraffic(Ptr<Socket> socket, uint32_t pktSize,
-        uint32_t pktCount, Time pktInterval) {
-    // todo: num of nodes    
-    int r = rand() % nWifi;
-    int r2 = rand() % nWifi;
-    
-    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(r), tid);
-    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(r2, 0), 80);
-    source->Connect(remote);
-    
+static void GenerateTraffic(Ptr<Socket> socket, double pktSize, double pktCount) {
     if (pktCount > 0) {
-        source->Send(Create<Packet> (pktSize));
-        Simulator::Schedule(pktInterval, &GenerateTraffic,
-                socket, pktSize, pktCount - 1, pktInterval);
+        socket->Send(Create<Packet> (pktSize));
+        
+        Time interval = Seconds(((rand() % 20) + 1)/10);
+        Simulator::Schedule(interval, &GenerateTraffic, socket, pktSize, pktCount - 1);
+    } else {
+        socket->Close();
     }
-    
-    source->Close();
+
 }
 
-int main(int argc, char *argv[]) 
+void PrintNodeResults(double nodeNumber, Ipv4Address sourceAddress, Ipv4Address destinationAddress, double packetsSent, double packetsReceived, double throughput)
+{    
+    std::cout << "Flow " << nodeNumber << " (" << sourceAddress << " -> " << destinationAddress << ")\n";
+    std::cout << "  Tx Packets: " << packetsSent << "\n";
+    std::cout << "  Rx Packets: " << packetsReceived << "\n";
+    std::cout << "  Throughput: " << throughput << " Mbps\n";
+}
+
+double CalculateAverageThroughput(double runsThroughputs[numOfRuns][numOfTests], int numOfRuns, int testNumber) {
+    double sum = 0;
+    for (int runNumber = 0; runNumber < numOfRuns; runNumber++)
+    {
+        sum += runsThroughputs[runNumber][testNumber];
+    }
+    
+    return sum/numOfRuns;
+}
+
+void CalculateStandardDeviation(double runsThroughputs[numOfRuns][numOfTests], int numOfRuns, int numOfTests, Gnuplot2dDataset* gnuplotData)
+{           
+    double averages[numOfTests];
+    double deviations[numOfTests];
+    
+    for (int testNumber = 0; testNumber < numOfTests; testNumber++)
+    {
+        averages[testNumber] = CalculateAverageThroughput(runsThroughputs, numOfRuns, testNumber);
+        double sum = 0;
+        for (int runNumber = 0; runNumber < numOfRuns; runNumber++)
+        {
+            sum += pow(runsThroughputs[runNumber][testNumber] - averages[testNumber], 2);
+        }
+        deviations[testNumber] = sqrt(sum/numOfRuns);
+        
+        std::cout << "Test: " << testNumber << " odcyhlka: " << deviations[testNumber] << "\n";
+        
+        double numOfNodes = (testNumber+1)*nodesMultiplier;
+        gnuplotData->Add(numOfNodes, averages[testNumber], deviations[testNumber]);
+    }    
+}
+
+NetDeviceContainer SetupWifi(NodeContainer carNodes)
 {
-    nWifi = 2;
-    double rss = -80; // -dBm
-    uint32_t packetSize = 1000; // bytes
-    uint32_t numPackets = 1;
-    double interval = 1.0; // seconds
-    
-    SeedManager::SetSeed (10); // nastavit raz, neodporuca sa menit
-    SeedManager::SetRun (1);   // pre zarucenie nezavislosti je lepsi
-
-    CommandLine cmd;
-    cmd.AddValue("nWifi", "Number of wifi STA devices", nWifi);
-    cmd.Parse(argc, argv);
-
-    NodeContainer wifiStaNodes;
-    wifiStaNodes.Create(nWifi);
-    allNodes.Add(wifiStaNodes);
-    
-    std::string phyMode ("DsssRate1Mbps");
+    std::string phyMode("DsssRate1Mbps");
     
     WifiHelper wifi;
-    wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
-    
+    wifi.SetStandard(WIFI_PHY_STANDARD_80211b);
+
     YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default();
-    // This is one parameter that matters when using FixedRssLossModel
-    // set it to zero; otherwise, gain will be added
-    wifiPhy.Set("RxGain", DoubleValue(0));
-    // ns-3 supports RadioTap and Prism tracing extensions for 802.11b
+    wifiPhy.Set("RxGain", DoubleValue(-10));
     wifiPhy.SetPcapDataLinkType(YansWifiPhyHelper::DLT_IEEE802_11_RADIO);
 
     YansWifiChannelHelper wifiChannel;
     wifiChannel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel");
-    // The below FixedRssLossModel will cause the rss to be fixed regardless
-    // of the distance between the two stations, and the transmit power
-    wifiChannel.AddPropagationLoss("ns3::FixedRssLossModel", "Rss", DoubleValue(rss));
+    wifiChannel.AddPropagationLoss("ns3::FriisPropagationLossModel");
+
     wifiPhy.SetChannel(wifiChannel.Create());
 
-    // Add a mac and disable rate control
     WifiMacHelper wifiMac;
     wifi.SetRemoteStationManager("ns3::ConstantRateWifiManager",
             "DataMode", StringValue(phyMode),
             "ControlMode", StringValue(phyMode));
-    // Set it to adhoc mode
-    wifiMac.SetType("ns3::AdhocWifiMac");
-    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, wifiStaNodes);
 
+    wifiMac.SetType("ns3::AdhocWifiMac");
+    
+    return wifi.Install(wifiPhy, wifiMac, carNodes);
+}
+
+Ptr<PositionAllocator> CreateDiscAllocator()
+{
     ObjectFactory pos;
     pos.SetTypeId("ns3::RandomDiscPositionAllocator");
-    pos.Set("X", StringValue("50.0"));
-    pos.Set("Y", StringValue("50.0"));
-    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=50]"));
+    pos.Set("X", DoubleValue(5));
+    pos.Set("Y", DoubleValue(5));
+    pos.Set("Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=10]"));
 
-    Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
-    
-    // Mobility
+    return pos.Create()->GetObject<PositionAllocator> ();
+}
 
+void SetupMobility(NodeContainer carNodes)
+{
     MobilityHelper mobility;
     mobility.SetPositionAllocator("ns3::RandomDiscPositionAllocator",
-            "X", StringValue("50.0"),
-            "Y", StringValue("50.0"),
-            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=50]"));
+            "X", DoubleValue(5),
+            "Y", DoubleValue(5),
+            "Rho", StringValue("ns3::UniformRandomVariable[Min=0|Max=10]"));
+
+    Ptr<PositionAllocator> discPositionAllocator = CreateDiscAllocator();
     
     mobility.SetMobilityModel("ns3::RandomWaypointMobilityModel",
             "Speed", StringValue("ns3::UniformRandomVariable[Min=10|Max=20]"),
             "Pause", StringValue("ns3::ConstantRandomVariable[Constant=0]"),
-            "PositionAllocator", PointerValue(taPositionAlloc));
+            "PositionAllocator", PointerValue(discPositionAllocator));
 
-//    mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
-//            "Bounds", RectangleValue(Rectangle(30, 70, 30, 70)),
-//            "Distance", DoubleValue(30),
-//            "Speed", StringValue("ns3::UniformRandomVariable[Min=5|Max=20]"));
+    mobility.Install(carNodes);
+}
+
+int main(int argc, char *argv[]) {
+    srand(time(0));
+    SeedManager::SetSeed(rand());
+    SeedManager::SetRun(numOfRuns);
     
-    mobility.Install(wifiStaNodes);
-
-    InternetStackHelper stack;
-    stack.Install(allNodes);
-
-    Ipv4AddressHelper address;
-    address.SetBase("10.1.1.0", "255.255.255.0");
-    staInterfaces = address.Assign(devices);
+    Gnuplot gnuplot("demolitionDerby-graph.svg");
+    gnuplot.SetTerminal("svg");
+    gnuplot.SetTitle("Throughput in relation to number of nodes");
+    gnuplot.SetLegend("Number of nodes", "Throughput [Mbps]");
+    // give the graph some padding on both sides
+    gnuplot.AppendExtra("set xrange[-1:" + std::to_string(numOfTests*nodesMultiplier*1.2) + "]");
     
-    tid = TypeId::LookupByName("ns3::UdpSocketFactory");
-    Ptr<Socket> recvSink = Socket::CreateSocket(allNodes.Get(0), tid);
-    InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
-    recvSink->Bind(local);
-    recvSink->SetRecvCallback(MakeCallback(&ReceivePacket));
-
-    Ptr<Socket> source = Socket::CreateSocket(allNodes.Get(nWifi - 1), tid);
-    InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(0, 0), 80);
-    source->Connect(remote);
-    // Tracing
-    wifiPhy.EnablePcap ("wifi-simple-adhoc", devices);
-
-    double duration = 120.0;
+    Gnuplot2dDataset gnuplotData;
+    gnuplotData.SetStyle (Gnuplot2dDataset::LINES_POINTS);
+    gnuplotData.SetErrorBars(Gnuplot2dDataset::Y);    
     
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-    Simulator::Stop(Seconds(duration));
+    double runsThroughputs[numOfRuns][numOfTests], runsPacketsSends[numOfRuns][numOfTests], runsPacketsReceiveds[numOfRuns][numOfTests];        
+    for (int runNumber = 0; runNumber < numOfRuns; runNumber++) {
+        //double testsThroughputs[numOfTests], testsPacketsSends[numOfTests], testsPacketsReceiveds[numOfTests];
+        for (int testNumber = 0; testNumber < numOfTests; testNumber++) {
+            double packetSize = 4096, numOfPackets = 3*6*9;
 
-    AnimationInterface anim("nascar-animation.xml"); // Mandatory
-    for (uint32_t i = 0; i < wifiStaNodes.GetN(); ++i) {
-        anim.UpdateNodeDescription(wifiStaNodes.Get(i), std::to_string(i)); // Optional
-        anim.UpdateNodeColor(wifiStaNodes.Get(i), 255, 0, 0); // Optional
+            double simulationDuration = 800.0;
+
+            double numOfCars = (testNumber + 1)*nodesMultiplier;
+            
+            NodeContainer carNodes;
+            carNodes.Create(numOfCars);
+            
+            NetDeviceContainer devices = SetupWifi(carNodes);
+            SetupMobility(carNodes);
+
+            // Internet
+            InternetStackHelper stack;
+            stack.Install(carNodes);
+
+            Ipv4AddressHelper address;
+            address.SetBase("10.1.1.0", "255.255.255.0");
+            
+            Ipv4InterfaceContainer staInterfaces;
+            staInterfaces = address.Assign(devices);
+
+            TypeId tid;
+            tid = TypeId::LookupByName("ns3::UdpSocketFactory");
+
+            Ptr<Socket> recvSinks[carNodes.GetN()];
+            Ptr<Socket> sources[carNodes.GetN()];
+            for (int i = 0; i < carNodes.GetN(); i++) {
+                recvSinks[i] = Socket::CreateSocket(carNodes.Get(i), tid);
+                InetSocketAddress local = InetSocketAddress(Ipv4Address::GetAny(), 80);
+                recvSinks[i]->Bind(local);
+                recvSinks[i]->SetRecvCallback(MakeCallback(&ReceivePacket));
+
+                int r;
+                while ((r = rand() % carNodes.GetN()) == i);
+
+                sources[i] = Socket::CreateSocket(carNodes.Get(r), tid);
+                InetSocketAddress remote = InetSocketAddress(staInterfaces.GetAddress(i, 0), 80);
+                sources[i]->Connect(remote);
+            }
+
+            Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+
+            for (int i = 0; i < numOfCars; i++) {
+                Time interPacketInterval = Seconds(((rand() % 20) + 1)/10);
+                Simulator::ScheduleWithContext(sources[i]->GetNode()->GetId(),
+                        Seconds(15.0 + i),
+                        &GenerateTraffic,
+                        sources[i],
+                        packetSize,
+                        numOfPackets / numOfCars);
+            }
+
+            // FlowMon
+            FlowMonitorHelper flowmon;
+            Ptr<FlowMonitor> monitor = flowmon.InstallAll();
+
+            Simulator::Stop(Seconds(simulationDuration));
+
+            // NetAnim
+            AnimationInterface anim("demolitionDerby-animation.xml");
+
+            for (uint32_t i = 0; i < numOfCars; i++) {
+                anim.UpdateNodeDescription(carNodes.Get(i), "Car " + std::to_string(i));
+                anim.UpdateNodeColor(carNodes.Get(i), 20*i, 20*i, 20*i);
+            }
+
+            anim.EnablePacketMetadata(); // Optional
+            anim.EnableIpv4RouteTracking("routingtable-wireless.xml", Seconds(0), Seconds(simulationDuration), Seconds(0.25));
+            anim.EnableWifiMacCounters(Seconds(0), Seconds(simulationDuration));
+            anim.EnableWifiPhyCounters(Seconds(0), Seconds(simulationDuration));
+
+            Simulator::Run();
+
+            // FlowMonitor
+            monitor->CheckForLostPackets();
+            Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier());
+            FlowMonitor::FlowStatsContainer stats = monitor->GetFlowStats();
+            double totalThroughput = 0;
+            double totalPacketsSent = 0;
+            double totalPacketsReceived = 0;
+            for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin(); i != stats.end(); ++i) {
+                double packetsSent = i->second.txPackets;
+                double packetsReceived = i->second.rxPackets;
+                double throughput = i->second.rxBytes * 8.0 / (simulationDuration * 1000000.0);
+
+                Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow(i->first);
+                PrintNodeResults(i->first, t.sourceAddress, t.destinationAddress, packetsSent, packetsReceived, throughput);
+
+                totalThroughput += throughput;
+                totalPacketsSent += packetsSent;
+                totalPacketsReceived += packetsReceived;
+            }
+
+            std::cout << "\n" << "Total throughput: " << totalThroughput << " Mbps\n";
+            std::cout << "Total packets sent: " << totalPacketsSent << "\n";
+            std::cout << "Total packets received: " << totalPacketsReceived << "\n";
+
+            runsThroughputs[runNumber][testNumber] = totalThroughput;
+            runsPacketsSends[runNumber][testNumber] = totalPacketsSent;
+            runsPacketsReceiveds[runNumber][testNumber] = totalPacketsReceived;
+
+            Simulator::Destroy();
+        }
+
+        std::cout << "\n";
+        for (int i = 0; i < numOfTests; i++) {
+            std::cout << runsThroughputs[runNumber][i] << "Mbps - " << runsPacketsReceiveds[runNumber][i] << "/" << runsPacketsSends[runNumber][i] << "\n";
+        }
     }
-
-    //g: set special name for node 0
-//    anim.UpdateNodeDescription(wifiStaNodes.Get(0), "Boss"); // Optional
-//    anim.UpdateNodeColor(wifiStaNodes.Get(0), 0, 123, 123); // Optional
-
-    UdpEchoClientHelper echoClient(staInterfaces.GetAddress(1), 9);
-    echoClient.SetAttribute("MaxPackets", UintegerValue(1));
-    echoClient.SetAttribute("Interval", TimeValue(Seconds(1.0)));
-    echoClient.SetAttribute("PacketSize", UintegerValue(1024));
     
-    ApplicationContainer clientApps = echoClient.Install(allNodes.Get(0));
-    clientApps.Start(Seconds(0.0));
-    clientApps.Stop(Seconds(duration));    
-
-    anim.EnablePacketMetadata(); // Optional
-    anim.EnableIpv4RouteTracking("routingtable-wireless.xml", Seconds(0), Seconds(5), Seconds(0.25)); //Optional
-    anim.EnableWifiMacCounters(Seconds(0), Seconds(duration)); //Optional
-    anim.EnableWifiPhyCounters(Seconds(0), Seconds(duration)); //Optional
+    CalculateStandardDeviation(runsThroughputs, numOfRuns, numOfTests, &gnuplotData);    
     
-    Time interPacketInterval = Seconds (interval);
-    
-    Simulator::ScheduleWithContext (source->GetNode ()->GetId (),
-                                  Seconds (1.0), &GenerateTraffic, 
-                                  source, packetSize, 69871, interPacketInterval);
-  
-    Simulator::Run();
-    Simulator::Destroy();
+    gnuplot.AddDataset(gnuplotData);
+    std::ofstream plotFile ("demolitionDerby-plot.plt");
+    gnuplot.GenerateOutput (plotFile);
+    plotFile.close ();
     
     return 0;
 }
